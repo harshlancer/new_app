@@ -5,19 +5,29 @@ import Icon from 'react-native-vector-icons/Feather';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
+import { getStoredStaffSession, withHotelScope } from '../../utils/hotelSession';
 
 export default function AdminDrawerContent(props) {
     const { state, navigation } = props;
 
     const [pendingLC, setPendingLC] = React.useState(0);
+    const [session, setSession] = React.useState(null);
 
     React.useEffect(() => {
-        const unsub = firestore().collection('late_checkout_requests')
-            .where('status', '==', 'pending')
-            .onSnapshot(snap => {
-                if (snap) setPendingLC(snap.size);
-            });
-        return unsub;
+        let unsubscribe;
+
+        const init = async () => {
+            const storedSession = await getStoredStaffSession();
+            setSession(storedSession);
+            unsubscribe = withHotelScope(firestore().collection('late_checkout_requests'), storedSession?.hotelId)
+                .where('status', '==', 'pending')
+                .onSnapshot(snap => {
+                    if (snap) setPendingLC(snap.size);
+                });
+        };
+
+        init();
+        return () => unsubscribe && unsubscribe();
     }, []);
 
     const navItems = [
@@ -119,8 +129,8 @@ export default function AdminDrawerContent(props) {
                     <View style={styles.statusDot}></View>
                 </View>
                 <View style={styles.userInfo}>
-                    <Text style={styles.userName}>Alex Rivera</Text>
-                    <Text style={styles.userRole}>ADMIN</Text>
+                    <Text style={styles.userName}>{session?.name || 'Admin User'}</Text>
+                    <Text style={styles.userRole}>{(session?.role || 'ADMIN').toUpperCase()}</Text>
                 </View>
             </View>
         </View>

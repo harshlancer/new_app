@@ -9,6 +9,7 @@ import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/d
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Feather';
 import { showToast } from '../../../App';
+import { getStoredHotelId, withHotelScope } from '../../utils/hotelSession';
 
 // ─── Room Type Options ───────────────────────────────────────────────────────
 const ROOM_TYPES = [
@@ -31,6 +32,7 @@ export default function RoomManagement() {
     const [rooms, setRooms] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('All');
+    const [hotelId, setHotelId] = useState(null);
 
     // ─── Room Detail ───────────────────────────────────────────────────────
     const [detailRoom, setDetailRoom] = useState(null);
@@ -116,23 +118,33 @@ export default function RoomManagement() {
     }, []);
 
     useEffect(() => {
-        const sub = firestore().collection('rooms').orderBy('roomNumber', 'asc').onSnapshot(snap => {
-            if (snap) {
-                if (snap.empty) {
-                    seedRooms();
-                } else {
-                    setRooms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    setLoading(false);
-                }
-            }
-        });
-        return sub;
+        let unsubscribe;
+
+        const init = async () => {
+            const activeHotelId = await getStoredHotelId();
+            setHotelId(activeHotelId);
+            unsubscribe = withHotelScope(firestore().collection('rooms'), activeHotelId)
+                .orderBy('roomNumber', 'asc')
+                .onSnapshot(snap => {
+                    if (snap) {
+                        if (snap.empty) {
+                            seedRooms(activeHotelId);
+                        } else {
+                            setRooms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                            setLoading(false);
+                        }
+                    }
+                });
+        };
+
+        init();
+        return () => unsubscribe && unsubscribe();
     }, []);
 
     // Listen for orders when a room is selected
     useEffect(() => {
         if (detailRoom) {
-            const unsub = firestore().collection('orders')
+            const unsub = withHotelScope(firestore().collection('orders'), hotelId)
                 .where('room', '==', detailRoom.roomNumber.toString())
                 .orderBy('createdAt', 'desc')
                 .limit(10)
@@ -145,12 +157,12 @@ export default function RoomManagement() {
         }
     }, [detailRoom]);
 
-    const seedRooms = async () => {
+    const seedRooms = async (activeHotelId) => {
         const batch = firestore().batch();
         const initial = [
-            { roomNumber: '101', type: 'Deluxe Room', status: 'Ready', floor: '1' },
-            { roomNumber: '102', type: 'Junior Suite', status: 'Ready', floor: '1' },
-            { roomNumber: '201', type: 'Executive Suite', status: 'Ready', floor: '2' },
+            { roomNumber: '101', type: 'Deluxe Room', status: 'Ready', floor: '1', hotelId: activeHotelId },
+            { roomNumber: '102', type: 'Junior Suite', status: 'Ready', floor: '1', hotelId: activeHotelId },
+            { roomNumber: '201', type: 'Executive Suite', status: 'Ready', floor: '2', hotelId: activeHotelId },
         ];
         initial.forEach(r => batch.set(firestore().collection('rooms').doc(r.roomNumber), r));
         await batch.commit();
@@ -189,7 +201,8 @@ export default function RoomManagement() {
             await firestore().collection('rooms').doc(newRoomNumber.trim()).set({
                 roomNumber: newRoomNumber.trim(), floor: newFloor.trim(),
                 type: newType.label, status: 'Ready',
-                imageUrl: newImageUrl.trim()
+                imageUrl: newImageUrl.trim(),
+                hotelId,
             });
             Vibration.vibrate([0, 20, 50, 20]);
             showToast('Room added!', 'success');
@@ -505,7 +518,7 @@ export default function RoomManagement() {
                             <TouchableOpacity onPress={() => setMaintRoom(null)}><Text style={styles.cancelLinkText}>Cancel</Text></TouchableOpacity>
                             <TouchableOpacity style={styles.saveBtn} onPress={async () => {
                                 await firestore().collection('rooms').doc(maintRoom.id).update({ status: 'Maintenance' });
-                                await firestore().collection('maintenance').add({ room: maintRoom.roomNumber, issue: maintIssue, status: 'Active', createdAt: firestore.FieldValue.serverTimestamp() });
+                                await firestore().collection('maintenance').add({ room: maintRoom.roomNumber, issue: maintIssue, status: 'Active', createdAt: firestore.FieldValue.serverTimestamp(), hotelId });
                                 setMaintRoom(null); setMaintIssue(''); showToast('Maintenance logged', 'success');
                             }}><Text style={styles.saveBtnText}>Log Task</Text></TouchableOpacity>
                         </View>
@@ -602,7 +615,8 @@ export default function RoomManagement() {
                                     checkIn: checkIn.toISOString(), 
                                     checkOut: checkOut.toISOString(),
                                     room: allotRoom.roomNumber,
-                                    status: 'Active'
+                                    status: 'Active',
+                                    hotelId,
                                 };
 
                                 try {

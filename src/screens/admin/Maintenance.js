@@ -2,22 +2,32 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Feather';
+import { getStoredHotelId, withHotelScope } from '../../utils/hotelSession';
 
 export default function Maintenance() {
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('All');
+    const [hotelId, setHotelId] = useState(null);
 
     useEffect(() => {
-        const sub = firestore().collection('maintenance')
-            .orderBy('createdAt', 'desc')
-            .onSnapshot(snap => {
-                if(snap) {
-                    setTasks(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    setLoading(false);
-                }
-            });
-        return () => sub();
+        let unsubscribe;
+
+        const init = async () => {
+            const activeHotelId = await getStoredHotelId();
+            setHotelId(activeHotelId);
+            unsubscribe = withHotelScope(firestore().collection('maintenance'), activeHotelId)
+                .orderBy('createdAt', 'desc')
+                .onSnapshot(snap => {
+                    if (snap) {
+                        setTasks(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                        setLoading(false);
+                    }
+                });
+        };
+
+        init();
+        return () => unsubscribe && unsubscribe();
     }, []);
 
     const handleComplete = async (task) => {
@@ -26,7 +36,9 @@ export default function Maintenance() {
             { text: 'Resolve', onPress: async () => {
                 await firestore().collection('maintenance').doc(task.id).update({ status: 'Completed' });
                 // Attempt to update room status automatically to 'Ready'
-                const roomsSnap = await firestore().collection('rooms').where('roomNumber', '==', task.room).get();
+                const roomsSnap = await withHotelScope(firestore().collection('rooms'), hotelId)
+                    .where('roomNumber', '==', task.room)
+                    .get();
                 if (!roomsSnap.empty) {
                     await firestore().collection('rooms').doc(roomsSnap.docs[0].id).update({ status: 'Ready' });
                 }

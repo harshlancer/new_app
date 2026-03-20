@@ -2,15 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Feather';
+import { getStoredHotelId, withHotelScope } from '../../utils/hotelSession';
 
 export default function CRM() {
     const [guests, setGuests] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [hotelId, setHotelId] = useState(null);
 
     const fetchGuests = async () => {
         try {
-            const snap = await firestore().collection('guests')
+            const activeHotelId = hotelId || await getStoredHotelId();
+            if (!hotelId) setHotelId(activeHotelId);
+
+            const snap = await withHotelScope(firestore().collection('guests'), activeHotelId)
                 // .where('status', '==', 'Active') // Optional: only show active
                 .orderBy('checkIn', 'desc')
                 .get();

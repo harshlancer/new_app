@@ -103,6 +103,7 @@ export default function LateCheckoutRequests() {
 
             // Notify the guest via a messages write (guest listens on their chat)
             await firestore().collection('messages').add({
+                hotelId,
                 room: req.room,
                 sender: 'Admin',
                 text: `Your late checkout request has been approved! You may now check out at ${req.requestedTime}. A fee of ₹${totalFee} (₹${fee}/hr × ${extraHours} hr${extraHours > 1 ? 's' : ''}) will be added to your bill.`,
@@ -128,6 +129,7 @@ export default function LateCheckoutRequests() {
             });
 
             await firestore().collection('messages').add({
+                hotelId,
                 room: req.room,
                 sender: 'Admin',
                 text: `We're sorry, your late checkout request for Room ${req.room} could not be accommodated at this time. Please proceed with your original checkout time. Thank you for your understanding.`,

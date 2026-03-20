@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Feather';
 import { showToast } from '../../../App';
+import { getStoredHotelId, withHotelScope } from '../../utils/hotelSession';
 
 export default function AdminChat() {
     const insets = useSafeAreaInsets();
@@ -12,30 +13,39 @@ export default function AdminChat() {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const flatListRef = useRef();
+    const [hotelId, setHotelId] = useState(null);
 
     // get recent rooms from guest messages
     useEffect(() => {
-        const subRooms = firestore().collection('messages')
-            .orderBy('timestamp', 'desc')
-            .limit(40)
-            .onSnapshot(snap => {
-                if (!snap) return;
-                const unique = [];
-                snap.docs.forEach(doc => {
-                    const data = doc.data();
-                    const room = data.room?.toString();
-                    if (room && !unique.includes(room)) unique.push(room);
+        let unsubscribe;
+
+        const init = async () => {
+            const activeHotelId = await getStoredHotelId();
+            setHotelId(activeHotelId);
+            unsubscribe = withHotelScope(firestore().collection('messages'), activeHotelId)
+                .orderBy('timestamp', 'desc')
+                .limit(40)
+                .onSnapshot(snap => {
+                    if (!snap) return;
+                    const unique = [];
+                    snap.docs.forEach(doc => {
+                        const data = doc.data();
+                        const room = data.room?.toString();
+                        if (room && !unique.includes(room)) unique.push(room);
+                    });
+                    setRooms(unique);
+                    if (!selectedRoom && unique.length > 0) setSelectedRoom(unique[0]);
                 });
-                setRooms(unique);
-                if (!selectedRoom && unique.length > 0) setSelectedRoom(unique[0]);
-            });
-        return () => subRooms();
+        };
+
+        init();
+        return () => unsubscribe && unsubscribe();
     }, [selectedRoom]);
 
     // messages for selected room
     useEffect(() => {
         if (!selectedRoom) return;
-        const sub = firestore().collection('messages')
+        const sub = withHotelScope(firestore().collection('messages'), hotelId)
             .where('room', '==', selectedRoom)
             .orderBy('timestamp', 'asc')
             .onSnapshot(snap => {
@@ -61,6 +71,7 @@ export default function AdminChat() {
         const text = input.trim();
         setInput('');
         await firestore().collection('messages').add({
+            hotelId,
             room: selectedRoom,
             sender: 'Admin',
             text,
